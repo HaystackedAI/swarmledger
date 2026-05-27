@@ -60,8 +60,8 @@ def create_sl_agent(user_id: str,session_id: str,external_sources_enabled: bool,
         get_reviews,
         publish_review_results,
     ]
-    if external_sources_enabled:
-        tools.insert(4, run_external_review)
+    # if external_sources_enabled:
+    #     tools.insert(4, run_external_review)
 
     return Agent(
         name="OrchestratorAgent",
