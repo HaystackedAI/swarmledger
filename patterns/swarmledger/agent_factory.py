@@ -30,12 +30,8 @@ def load_system_prompt() -> str:
         return f.read()
 
 
-def create_medical_review_agent(
-    user_id: str,
-    session_id: str,
-    external_sources_enabled: bool,
-) -> Agent:
-    model_id = os.environ.get("MODEL_ID", "amazon.nova-micro-v1:0")
+def create_sl_agent(user_id: str,session_id: str,external_sources_enabled: bool,) -> Agent:
+    model_id = os.environ.get("MODEL_ID", "amazon.nova-lite-v1:0")
     bedrock_model = BedrockModel(
         model_id=model_id,
         temperature=INFERENCE_CONFIG["temperature"],
@@ -44,9 +40,8 @@ def create_medical_review_agent(
         boto_client_config=BEDROCK_CONFIG,
     )
 
-    memory_id = os.environ.get("MEMORY_ID")
-    if not memory_id:
-        raise ValueError("MEMORY_ID environment variable is required")
+    memory_id = os.environ.get("MEMORY_ID" , "medicalcontentreviewcontentreviewbackend00452B8C-Vu19UiCsku")
+    if not memory_id:raise ValueError("MEMORY_ID environment variable is required")
 
     agentcore_memory_config = AgentCoreMemoryConfig(
         memory_id=memory_id, session_id=session_id, actor_id=user_id
@@ -69,7 +64,7 @@ def create_medical_review_agent(
         tools.insert(4, run_external_review)
 
     return Agent(
-        name="MedicalContentReviewOrchestrator",
+        name="OrchestratorAgent",
         system_prompt=load_system_prompt(),
         tools=tools,
         model=bedrock_model,

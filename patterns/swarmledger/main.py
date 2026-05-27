@@ -7,7 +7,7 @@ from bootstrap import bootstrap_runtime
 
 bootstrap_runtime()
 
-from agent_factory import create_medical_review_agent
+from agent_factory import create_sl_agent
 from app_factory import create_app
 from bedrock_agentcore.runtime import RequestContext
 from data_sources import normalize_enabled_sources
@@ -75,7 +75,7 @@ async def agent_stream(payload, context: RequestContext):
 
     try:
         user_id = extract_user_id_from_context(context)
-        agent = create_medical_review_agent(
+        agent = create_sl_agent(
             user_id,
             session_id,
             external_sources_enabled=bool(enabled_sources),
