@@ -11,9 +11,30 @@ os.environ["BYPASS_TOOL_CONSENT"] = "true"
 
 PATTERN_DIR = Path(__file__).resolve().parent
 PATTERNS_DIR = Path(__file__).resolve().parents[1]
+REPO_DIR = Path(__file__).resolve().parents[2]
 for path in (PATTERN_DIR, PATTERNS_DIR):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
+
+
+def load_local_env_file() -> None:
+    env_path = REPO_DIR / ".env"
+    if not env_path.exists():
+        return
+
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if not key:
+            continue
+        value = value.strip().strip("'\"")
+        os.environ[key] = value
+
+
+load_local_env_file()
 
 from bedrock_agentcore.memory.integrations.strands.config import AgentCoreMemoryConfig
 from bedrock_agentcore.memory.integrations.strands.session_manager import (
@@ -30,6 +51,8 @@ from reviewers import (
 from strands import Agent
 from strands.models import BedrockModel
 from strands_tools import file_read, file_write
+from starlette.middleware import Middleware
+from starlette.middleware.cors import CORSMiddleware
 from utils.auth import extract_user_id_from_context
 from utils.inference import get_bedrock_config, get_inference_configs
 
@@ -38,7 +61,19 @@ from tools import batch_content, process_pdf
 INFERENCE_CONFIG, _ = get_inference_configs()
 BEDROCK_CONFIG = get_bedrock_config()
 
-app = BedrockAgentCoreApp()
+app = BedrockAgentCoreApp(
+    middleware=[
+        Middleware(
+            CORSMiddleware,
+            allow_origins=[
+                "http://localhost:3000",
+                "http://127.0.0.1:3000",
+            ],
+            allow_methods=["GET", "POST", "OPTIONS"],
+            allow_headers=["*"],
+        )
+    ]
+)
 
 SYSTEM_PROMPT_PATH = Path(__file__).parent / "prompts" / "orchestrator.txt"
 
@@ -115,7 +150,7 @@ def create_medical_review_agent(
 ) -> tuple:
     system_prompt = load_system_prompt()
 
-    model_id = os.environ.get("MODEL_ID", "global.anthropic.claude-sonnet-4-6")
+    model_id = os.environ.get("MODEL_ID", "amazon.nova-micro-v1:0")
     bedrock_model = BedrockModel(
         model_id=model_id,
         temperature=INFERENCE_CONFIG["temperature"],

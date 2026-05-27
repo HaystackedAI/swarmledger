@@ -12,6 +12,7 @@ from pathlib import Path, PurePosixPath
 import boto3
 from pdf2image import convert_from_path, pdfinfo_from_path
 from strands import tool
+from utils.inference import get_env_int, get_step_max_tokens
 
 s3_client = boto3.client("s3")
 bedrock_client = boto3.client("bedrock-runtime")
@@ -24,6 +25,7 @@ OCR_MODEL_ID = os.environ.get(
 )
 STAGING_BUCKET = os.environ.get("STAGING_BUCKET_NAME")
 MARKDOWN_PREFIX = "markdowns"
+OCR_MAX_TOKENS = get_env_int("OCR_MAX_TOKENS", get_step_max_tokens(default=4096))
 
 OCR_SYSTEM = (Path(__file__).parent.parent / "prompts" / "pdf_ocr.txt").read_text(
     encoding="utf-8"
@@ -77,7 +79,7 @@ def _ocr_single_page(pdf_path: str, page_idx: int, dpi: int) -> tuple[int, str]:
             }
         ],
         system=[{"text": OCR_SYSTEM}],
-        inferenceConfig={"maxTokens": 8192, "temperature": 0},
+        inferenceConfig={"maxTokens": OCR_MAX_TOKENS, "temperature": 0},
     )
     page_text = response["output"]["message"]["content"][0]["text"].strip()
     return page_idx, page_text

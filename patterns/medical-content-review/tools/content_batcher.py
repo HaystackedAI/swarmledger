@@ -10,6 +10,7 @@ from pathlib import Path, PurePosixPath
 
 import boto3
 from strands import tool
+from utils.inference import get_env_int, get_step_max_tokens
 
 s3_client = boto3.client("s3")
 bedrock_client = boto3.client("bedrock-runtime")
@@ -20,6 +21,9 @@ MODEL_ID = os.environ.get(
 )
 STAGING_BUCKET = os.environ.get("STAGING_BUCKET_NAME")
 MARKDOWN_PREFIX = "markdowns"
+BATCHER_MAX_TOKENS = get_env_int(
+    "BATCHER_MAX_TOKENS", get_step_max_tokens(default=2048)
+)
 
 SYSTEM = (Path(__file__).parent.parent / "prompts" / "batch_content.txt").read_text(
     encoding="utf-8"
@@ -93,7 +97,7 @@ def batch_content(markdown_s3_uri: str) -> str:
             }
         ],
         system=[{"text": SYSTEM}],
-        inferenceConfig={"maxTokens": 2048, "temperature": 0},
+        inferenceConfig={"maxTokens": BATCHER_MAX_TOKENS, "temperature": 0},
     )
     raw = response["output"]["message"]["content"][0]["text"]
     batch_page_lists: list[list[int]] = ast.literal_eval(_parse_tagged(raw, "chunks"))
