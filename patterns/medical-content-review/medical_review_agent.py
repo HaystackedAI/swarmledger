@@ -22,7 +22,7 @@ from reviewers import (
 )
 from strands import Agent
 from strands.models import BedrockModel, CacheConfig
-from strands_tools import file_read, file_write
+from strands.tools import file_read, file_write
 from utils.auth import extract_user_id_from_context
 from utils.inference import get_bedrock_config, get_inference_configs
 

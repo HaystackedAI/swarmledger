@@ -29,6 +29,8 @@ dependencies = [
     "requests>=2.31.0",
     "PyYAML>=6.0.1",
     "colorama>=0.4.6",
+    "bedrock-agentcore>=1.0.6",
+    "strands-agents>=1.16.0",
 ]
 
 [project.optional-dependencies]

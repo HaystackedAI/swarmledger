@@ -8,22 +8,22 @@ import { useAuth } from "@/hooks/useAuth";
 import { GlobalContextProvider } from "@/app/context/GlobalContext";
 
 export default function ChatPage() {
-  const { isAuthenticated, signIn } = useAuth();
+    const { isAuthenticated, signIn } = useAuth();
 
-  if (!isAuthenticated) {
+    if (!isAuthenticated) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-screen gap-4">
+                <p className="text-4xl">Please sign in</p>
+                <Button onClick={() => signIn()}>Sign In</Button>
+            </div>
+        );
+    }
+
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen gap-4">
-        <p className="text-4xl">Please sign in</p>
-        <Button onClick={() => signIn()}>Sign In</Button>
-      </div>
+        <GlobalContextProvider>
+            <div className="relative h-screen">
+                <ChatInterface />
+            </div>
+        </GlobalContextProvider>
     );
-  }
-
-  return (
-    <GlobalContextProvider>
-      <div className="relative h-screen">
-        <ChatInterface />
-      </div>
-    </GlobalContextProvider>
-  );
 }
