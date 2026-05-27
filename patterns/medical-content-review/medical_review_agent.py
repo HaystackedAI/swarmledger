@@ -3,10 +3,15 @@
 import copy
 import json
 import os
+import sys
 import traceback
 from pathlib import Path
 
 os.environ["BYPASS_TOOL_CONSENT"] = "true"
+
+PATTERNS_DIR = Path(__file__).resolve().parents[1]
+if str(PATTERNS_DIR) not in sys.path:
+    sys.path.insert(0, str(PATTERNS_DIR))
 
 from bedrock_agentcore.memory.integrations.strands.config import AgentCoreMemoryConfig
 from bedrock_agentcore.memory.integrations.strands.session_manager import (
@@ -22,7 +27,7 @@ from reviewers import (
 )
 from strands import Agent
 from strands.models import BedrockModel, CacheConfig
-from strands.tools import file_read, file_write
+from strands_tools import file_read, file_write
 from utils.auth import extract_user_id_from_context
 from utils.inference import get_bedrock_config, get_inference_configs
 

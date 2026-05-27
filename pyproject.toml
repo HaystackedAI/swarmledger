@@ -31,6 +31,7 @@ dependencies = [
     "colorama>=0.4.6",
     "bedrock-agentcore>=1.0.6",
     "strands-agents>=1.16.0",
+    "strands-agents-tools>=0.6.0",
 ]
 
 [project.optional-dependencies]
