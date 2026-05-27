@@ -21,7 +21,9 @@ MODEL_ID = os.environ.get(
 STAGING_BUCKET = os.environ.get("STAGING_BUCKET_NAME")
 MARKDOWN_PREFIX = "markdowns"
 
-SYSTEM = (Path(__file__).parent.parent / "prompts" / "batch_content.txt").read_text()
+SYSTEM = (Path(__file__).parent.parent / "prompts" / "batch_content.txt").read_text(
+    encoding="utf-8"
+)
 
 PROMPT_TEMPLATE = (
     "Here is the full document as markdown. Pages are delimited by"

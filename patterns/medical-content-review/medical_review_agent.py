@@ -9,9 +9,11 @@ from pathlib import Path
 
 os.environ["BYPASS_TOOL_CONSENT"] = "true"
 
+PATTERN_DIR = Path(__file__).resolve().parent
 PATTERNS_DIR = Path(__file__).resolve().parents[1]
-if str(PATTERNS_DIR) not in sys.path:
-    sys.path.insert(0, str(PATTERNS_DIR))
+for path in (PATTERN_DIR, PATTERNS_DIR):
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
 
 from bedrock_agentcore.memory.integrations.strands.config import AgentCoreMemoryConfig
 from bedrock_agentcore.memory.integrations.strands.session_manager import (
@@ -26,7 +28,7 @@ from reviewers import (
     run_internal_review,
 )
 from strands import Agent
-from strands.models import BedrockModel, CacheConfig
+from strands.models import BedrockModel
 from strands_tools import file_read, file_write
 from utils.auth import extract_user_id_from_context
 from utils.inference import get_bedrock_config, get_inference_configs
@@ -71,7 +73,7 @@ DEFAULT_ENABLED_SOURCES = [
 
 
 def load_system_prompt() -> str:
-    with open(SYSTEM_PROMPT_PATH) as f:
+    with open(SYSTEM_PROMPT_PATH, encoding="utf-8") as f:
         return f.read()
 
 
@@ -120,7 +122,6 @@ def create_medical_review_agent(
         max_tokens=INFERENCE_CONFIG["maxTokens"],
         streaming=True,
         boto_client_config=BEDROCK_CONFIG,
-        cache_config=CacheConfig(strategy="auto"),
     )
 
     memory_id = os.environ.get("MEMORY_ID")

@@ -25,7 +25,9 @@ OCR_MODEL_ID = os.environ.get(
 STAGING_BUCKET = os.environ.get("STAGING_BUCKET_NAME")
 MARKDOWN_PREFIX = "markdowns"
 
-OCR_SYSTEM = (Path(__file__).parent.parent / "prompts" / "pdf_ocr.txt").read_text()
+OCR_SYSTEM = (Path(__file__).parent.parent / "prompts" / "pdf_ocr.txt").read_text(
+    encoding="utf-8"
+)
 
 
 def _parse_s3_uri(s3_uri: str) -> tuple[str, str]:

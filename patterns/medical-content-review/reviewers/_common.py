@@ -18,7 +18,7 @@ from pathlib import Path, PurePosixPath
 
 import boto3
 from strands import Agent
-from strands.models import BedrockModel, CacheConfig
+from strands.models import BedrockModel
 from utils.inference import get_bedrock_config, get_inference_configs
 
 s3_client = boto3.client("s3")
@@ -28,7 +28,7 @@ PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
 def load_prompt(name: str) -> str:
     """Read a reviewer prompt template from patterns/medical-content-review/prompts/."""
-    return (PROMPTS_DIR / f"{name}.txt").read_text()
+    return (PROMPTS_DIR / f"{name}.txt").read_text(encoding="utf-8")
 
 
 INFERENCE_CONFIG, _ = get_inference_configs()
@@ -85,7 +85,6 @@ def build_reviewer_model() -> BedrockModel:
         max_tokens=INFERENCE_CONFIG["maxTokens"],
         streaming=False,
         boto_client_config=BEDROCK_CONFIG,
-        cache_config=CacheConfig(strategy="auto"),
     )
 
 
