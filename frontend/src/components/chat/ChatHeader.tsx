@@ -66,7 +66,7 @@ export function ChatHeader({ onNewChat, canStartNewChat }: ChatHeaderProps) {
               Swarm Ledger
             </h1>
             <p className="text-sm text-gray-600 dark:text-gray-400">
-              AI-Powered Multi-Agent MLR System
+              AI-Powered Multi-Agent System
             </p>
           </div>
         </div>
