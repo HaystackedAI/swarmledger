@@ -1,0 +1,33 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+stack_name_base: medical-content-review
+region: null # AWS region to deploy the stack (e.g., us-west-2). If null, uses your AWS CLI default region.
+
+# Optional: Set to automatically create an admin user and email credentials
+# If not provided, you'll need to manually create users via AWS Console
+admin_user_email: null
+
+auto_deploy_frontend: true # Automatically deploy frontend after CDK deploy (when using npm run deploy)
+
+backend:
+  pattern: medical-content-review
+  deployment_type: docker # Available deployment types: docker (default), zip
+  model_id: global.anthropic.claude-sonnet-4-6 # Model ID for the agent (with cross-region prefix)
+
+# Tools configuration
+# enabled: whether the tool is deployed and available (true/false)
+# default_on: whether the tool is toggled on by default in the UI (true/false)
+tools:
+  # External data sources used by the external reviewer sub-agent
+  pubmed: # Search peer-reviewed biomedical and life sciences literature
+    enabled: true
+    default_on: true
+  openfda: # Search FDA drug label database for pharmaceutical information
+    enabled: true
+    default_on: true
+  clinicaltrials: # Search clinical studies by condition, intervention, or phase
+    enabled: true
+    default_on: true
+  nova: # AWS-powered web search via Amazon Nova with citations
+    enabled: true
+    default_on: true
