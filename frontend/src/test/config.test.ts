@@ -220,7 +220,7 @@ describe("Configuration Verification Tests", () => {
         resolve(__dirname, "../../index.html"),
         "utf-8",
       );
-      expect(indexHtml).toContain("<title>Medical Content Review</title>");
+      expect(indexHtml).toContain("<title>Swarm Ledger</title>");
     });
 
     it("should have meta description", () => {

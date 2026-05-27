@@ -63,7 +63,7 @@ export function ChatHeader({ onNewChat, canStartNewChat }: ChatHeaderProps) {
           </div>
           <div>
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-              Medical Content Review
+              Swarm Ledger
             </h1>
             <p className="text-sm text-gray-600 dark:text-gray-400">
               AI-Powered Multi-Agent MLR System
