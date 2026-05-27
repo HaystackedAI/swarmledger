@@ -16,15 +16,30 @@ const PARSERS: Record<AgentPattern, ChunkParser> = {
 
 const DEBUG_PREFIX = "[MCR Review]";
 
+function base64UrlEncode(value: unknown): string {
+    const encoded = btoa(JSON.stringify(value));
+    return encoded.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function createLocalMockJwt(): string {
+    return [
+        base64UrlEncode({ alg: "none", typ: "JWT" }),
+        base64UrlEncode({ sub: "local-frontend-user" }),
+        "",
+    ].join(".");
+}
+
 export class AgentCoreClient {
     private runtimeArn: string;
     private region: string;
     private parser: ChunkParser;
+    private localEndpoint?: string;
 
     constructor(config: AgentCoreConfig) {
         this.runtimeArn = config.runtimeArn;
         this.region = config.region ?? "us-east-1";
         this.parser = PARSERS[config.pattern];
+        this.localEndpoint = config.localEndpoint?.replace(/\/$/, "");
     }
 
     // Abort any in-flight stream
@@ -46,16 +61,21 @@ export class AgentCoreClient {
         contentPdfName?: string,
         referenceNames?: string[],
     ): Promise<void> {
-        if (!accessToken) throw new Error("No valid access token found.");
-        if (!this.runtimeArn) throw new Error("Agent Runtime ARN not configured.");
+        if (!accessToken && !this.localEndpoint)
+            throw new Error("No valid access token found.");
+        if (!this.runtimeArn && !this.localEndpoint)
+            throw new Error("Agent Runtime ARN not configured.");
 
         // Abort any previous in-flight request
         this._abortController?.abort();
         this._abortController = new AbortController();
 
-        const endpoint = `https://bedrock-agentcore.${this.region}.amazonaws.com`;
+        const endpoint =
+            this.localEndpoint ?? `https://bedrock-agentcore.${this.region}.amazonaws.com`;
         const escapedArn = encodeURIComponent(this.runtimeArn);
-        const url = `${endpoint}/runtimes/${escapedArn}/invocations?qualifier=DEFAULT`;
+        const url = this.localEndpoint
+            ? `${this.localEndpoint}/invocations`
+            : `${endpoint}/runtimes/${escapedArn}/invocations?qualifier=DEFAULT`;
 
         const traceId = `1-${Math.floor(Date.now() / 1000).toString(
             16,
@@ -88,6 +108,17 @@ export class AgentCoreClient {
         // User identity is extracted server-side from the validated JWT token
         // (Authorization header), not sent in the payload body. This prevents
         // impersonation via prompt injection.
+        const headers: Record<string, string> = {
+            "Content-Type": "application/json",
+            "X-Amzn-Trace-Id": traceId,
+            "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id": sessionId,
+        };
+        if (accessToken) {
+            headers.Authorization = `Bearer ${accessToken}`;
+        } else if (this.localEndpoint) {
+            headers.Authorization = `Bearer ${createLocalMockJwt()}`;
+        }
+
         console.info(`${DEBUG_PREFIX} Invoking AgentCore Runtime`, {
             endpoint,
             url,
@@ -96,7 +127,7 @@ export class AgentCoreClient {
             sessionId,
             traceId,
             headers: {
-                Authorization: "Bearer <redacted>",
+                Authorization: headers.Authorization ? "Bearer <redacted>" : undefined,
                 "X-Amzn-Trace-Id": traceId,
                 "Content-Type": "application/json",
                 "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id": sessionId,
@@ -106,12 +137,7 @@ export class AgentCoreClient {
 
         const response = await fetch(url, {
             method: "POST",
-            headers: {
-                Authorization: `Bearer ${accessToken}`,
-                "X-Amzn-Trace-Id": traceId,
-                "Content-Type": "application/json",
-                "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id": sessionId,
-            },
+            headers,
             body: JSON.stringify(payload),
             signal: this._abortController.signal,
         });

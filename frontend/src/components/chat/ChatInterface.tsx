@@ -67,6 +67,8 @@ const TOOL_META: Record<string, { label: string; icon: string }> = {
 };
 
 const DEBUG_PREFIX = "[MCR Review]";
+const LOCAL_AGENT_ENDPOINT =
+    import.meta.env.VITE_AGENTCORE_LOCAL_ENDPOINT || "http://localhost:8000";
 
 // Turn "some_tool_name" into "Some tool name"
 function humanize(name: string): string {
@@ -246,7 +248,14 @@ function newSessionId(): string {
 export default function ChatInterface() {
     const [messages, setMessages] = useState<Message[]>([]);
     const [error, setError] = useState<string | null>(null);
-    const [client, setClient] = useState<AgentCoreClient | null>(null);
+    const [client, setClient] = useState<AgentCoreClient | null>(
+        () =>
+            new AgentCoreClient({
+                runtimeArn: "",
+                pattern: "medical-content-review",
+                localEndpoint: LOCAL_AGENT_ENDPOINT,
+            }),
+    );
     const [sessionId, setSessionId] = useState(() => newSessionId());
 
     const [toolsConfig, setToolsConfig] =
@@ -330,15 +339,12 @@ export default function ChatInterface() {
                     tools: config.tools,
                 });
 
-                if (!config.agentRuntimeArn) {
-                    throw new Error("Agent Runtime ARN not found in configuration");
-                }
-
                 const agentClient = new AgentCoreClient({
-                    runtimeArn: config.agentRuntimeArn,
+                    runtimeArn: config.agentRuntimeArn || "",
                     region: config.awsRegion || "us-east-1",
                     pattern: (config.agentPattern ||
                         "medical-content-review") as AgentPattern,
+                    localEndpoint: LOCAL_AGENT_ENDPOINT,
                 });
                 setClient(agentClient);
 
@@ -354,7 +360,13 @@ export default function ChatInterface() {
             } catch (err) {
                 const errorMessage =
                     err instanceof Error ? err.message : "Unknown error";
-                setError(`Configuration error: ${errorMessage}`);
+                console.warn(
+                    `${DEBUG_PREFIX} Falling back to local agent endpoint`,
+                    {
+                        localEndpoint: LOCAL_AGENT_ENDPOINT,
+                        error: errorMessage,
+                    },
+                );
             }
         }
         loadConfig();
@@ -392,9 +404,7 @@ export default function ChatInterface() {
         setMessages((prev) => [...prev, assistantResponse]);
 
         try {
-            const accessToken = auth.user?.access_token;
-            if (!accessToken)
-                throw new Error("Authentication required. Please log in again.");
+            const accessToken = auth.user?.access_token || "";
 
             const segments: MessageSegment[] = [];
             const toolCallMap = new Map<string, ToolCall>();

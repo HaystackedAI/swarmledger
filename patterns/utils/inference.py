@@ -1,6 +1,7 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
 
+import os
 from typing import Any
 
 import botocore
@@ -10,9 +11,47 @@ BEDROCK_CONNECT_TIMEOUT = 600
 BEDROCK_MAX_ATTEMPTS = 3
 BEDROCK_MAX_CONNECTIONS = 10
 
-MAX_TOKENS = 64_000
-THINKING_TOKENS = 2_000
+DEFAULT_MAX_TOKENS = 64_000
+NOVA_MICRO_MAX_TOKENS = 2_048
+DEFAULT_THINKING_TOKENS = 2_000
 TEMPERATURE = 0.0
+
+
+def get_env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be an integer, got {raw!r}") from exc
+    if value < 1:
+        raise ValueError(f"{name} must be greater than 0")
+    return value
+
+
+def _default_max_tokens() -> int:
+    model_id = os.environ.get("MODEL_ID", "")
+    if "nova-micro" in model_id:
+        return NOVA_MICRO_MAX_TOKENS
+    return DEFAULT_MAX_TOKENS
+
+
+def get_step_max_tokens(default: int | None = None) -> int:
+    """
+    Return the per-step generation token budget.
+
+    STEP_MAX_TOKENS is the global override. Without an override, Nova Micro uses
+    a smaller default so each agent turn has room inside its 10k context window.
+    """
+    fallback = _default_max_tokens() if default is None else default
+    if "nova-micro" in os.environ.get("MODEL_ID", ""):
+        fallback = min(fallback, NOVA_MICRO_MAX_TOKENS)
+    return get_env_int("STEP_MAX_TOKENS", fallback)
+
+
+MAX_TOKENS = get_step_max_tokens()
+THINKING_TOKENS = get_env_int("THINKING_TOKENS", DEFAULT_THINKING_TOKENS)
 
 INFERENCE_CONFIG = {
     "stopSequences": [],  # words after which the generation is stopped

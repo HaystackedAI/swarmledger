@@ -9,6 +9,7 @@ export interface AgentCoreConfig {
   runtimeArn: string;
   region?: string;
   pattern: AgentPattern;
+  localEndpoint?: string;
 }
 
 /** Stream event types emitted by parsers */
