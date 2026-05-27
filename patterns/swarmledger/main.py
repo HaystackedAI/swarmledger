@@ -21,13 +21,13 @@ app = create_app()
 @app.entrypoint
 async def agent_stream(payload, context: RequestContext):
     """
-    Main entrypoint for the medical content review orchestrator.
+    Main entrypoint for the swarm ledger orchestrator.
 
     Payload fields:
     - prompt: User's review request (required)
     - runtimeSessionId: Session ID (required)
     - enabledSources: Subset of {pubmed, openfda, clinicaltrials, nova} (optional)
-    - contentPdfUri: S3 URI of the medical content PDF to review
+    - contentPdfUri: S3 URI of the swarm ledgerPDF to review
     - referenceUris: List of S3 URIs for reference materials (optional)
     """
     user_query = payload.get("prompt")
@@ -46,7 +46,7 @@ async def agent_stream(payload, context: RequestContext):
         return
 
     print(
-        "[MCR Review] AgentCore request received "
+        "[SL Review] AgentCore request received "
         + json.dumps(
             {
                 "session_id": session_id,
@@ -89,7 +89,7 @@ async def agent_stream(payload, context: RequestContext):
             if "current_tool_use" in d:
                 ctu = d["current_tool_use"]
                 print(
-                    "[MCR Review] Tool event "
+                    "[SL Review] Tool event "
                     + json.dumps(
                         {
                             "session_id": session_id,
