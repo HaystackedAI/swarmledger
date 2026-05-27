@@ -3,13 +3,16 @@
 import json
 import os
 
-# External data sources reachable via the AgentCore Gateway. The orchestrator
-# itself does NOT call these; only the external-review sub-agent does.
+# Frontend display toggles for accounting context. They are intentionally not
+# wired to backend Gateway tools in the accounting intake workflow.
 ALL_DATA_SOURCES = {
-    "pubmed": "PubMed Search",
-    "openfda": "OpenFDA Drug Search",
-    "clinicaltrials": "ClinicalTrials.gov Search",
-    "nova": "Nova Web Grounding",
+    "pubmed": "Tax Registry",
+    "openfda": "Business Registry",
+    "clinicaltrials": "Bank Feed",
+    "nova": "Member Directory",
+    "coa": "Chart of Accounts",
+    "tax": "Sales Tax Rules",
+    "period": "Period Close Rules",
 }
 
 

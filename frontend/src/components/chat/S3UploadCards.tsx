@@ -50,7 +50,7 @@ export function S3UploadCards({
             className="w-full px-3 py-2 border-2 border-dashed border-indigo-200 dark:border-indigo-800 rounded-xl text-xs font-mono placeholder:text-muted-foreground bg-background text-foreground focus:outline-none focus:border-indigo-400 dark:focus:border-indigo-600 transition-colors"
           />
           <p className="text-[10px] text-muted-foreground mt-2">
-            The medical content PDF to review
+            The receipt, invoice, or statement to process
           </p>
         </div>
       </div>

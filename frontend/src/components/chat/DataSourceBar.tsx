@@ -40,6 +40,24 @@ const TOOLS: ToolMeta[] = [
         icon: "🤝",
         description: "Member and business directory enrichment",
     },
+    {
+        id: "coa",
+        name: "COA",
+        icon: "📚",
+        description: "Chart of accounts mapping",
+    },
+    {
+        id: "tax",
+        name: "Tax Rules",
+        icon: "🧮",
+        description: "GST/HST and sales tax treatment",
+    },
+    {
+        id: "period",
+        name: "Close Rules",
+        icon: "📆",
+        description: "Posting period and cutoff checks",
+    },
 ];
 
 
@@ -62,11 +80,10 @@ export function DataSourceBar({
             <div className="flex items-center justify-between gap-3 flex-wrap">
                 <div>
                     <h3 className="text-sm font-semibold text-white">
-                        External data sources
+                        Accounting context sources
                     </h3>
                     <p className="text-xs text-gray-400 mt-0.5">
-                        The external reviewer cross-checks claims against the enabled
-                        databases.
+                        Display-only context toggles for the intake workflow.
                     </p>
                 </div>
             </div>

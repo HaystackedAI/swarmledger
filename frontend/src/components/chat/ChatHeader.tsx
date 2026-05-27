@@ -66,7 +66,7 @@ export function ChatHeader({ onNewChat, canStartNewChat }: ChatHeaderProps) {
               Swarm Ledger
             </h1>
             <p className="text-sm text-gray-600 dark:text-gray-400">
-              AI-Powered Multi-Agent System
+              Accounting Intake Workspace
             </p>
           </div>
         </div>
@@ -86,7 +86,7 @@ export function ChatHeader({ onNewChat, canStartNewChat }: ChatHeaderProps) {
             disabled={!canStartNewChat}
           >
             <Plus className="h-4 w-4" />
-            New Review
+            New Intake
           </Button>
           {isAuthenticated && (
             <AlertDialog>

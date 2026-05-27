@@ -7,7 +7,7 @@ import { ChatHeader } from "./ChatHeader";
 import { Message, MessageSegment, ToolCall } from "./types";
 import {
     ReviewResultsPanel,
-    ReviewIssue,
+    AccountingReport,
     ActivityEntry,
 } from "./ReviewResultsPanel";
 import { FileUploadCards } from "./FileUploadCards";
@@ -29,6 +29,14 @@ function toolToPhaseIdx(name: string): number {
     const core = stripGatewayPrefix(name);
     if (core === "process_pdf") return 0;
     if (core === "batch_content") return 1;
+    if (core === "create_transactions") return 2;
+    if (core === "create_journal_entries") return 3;
+    if (
+        core === "generate_trial_balance" ||
+        core === "generate_financial_statements" ||
+        core === "publish_accounting_results"
+    )
+        return 4;
     if (
         core === "run_generic_review" ||
         core === "run_external_review" ||
@@ -51,8 +59,16 @@ function toolToPhaseIdx(name: string): number {
 
 // Display metadata keyed by the bare tool name (after stripping any gateway prefix)
 const TOOL_META: Record<string, { label: string; icon: string }> = {
-    process_pdf: { label: "Processing PDF", icon: "📄" },
-    batch_content: { label: "Splitting into batches", icon: "✂️" },
+    process_pdf: { label: "Reading financial document", icon: "📄" },
+    batch_content: { label: "Preparing document batches", icon: "✂️" },
+    create_transactions: { label: "Creating transactions", icon: "🧾" },
+    create_journal_entries: { label: "Posting journal entries", icon: "📚" },
+    generate_trial_balance: { label: "Generating trial balance", icon: "📊" },
+    generate_financial_statements: {
+        label: "Generating financial statements",
+        icon: "💼",
+    },
+    publish_accounting_results: { label: "Publishing accounting package", icon: "✅" },
     run_generic_review: { label: "Editorial", icon: "🧐" },
     run_external_review: { label: "External Evidence", icon: "🔬" },
     run_internal_review: { label: "Internal References", icon: "📚" },
@@ -65,7 +81,7 @@ const TOOL_META: Record<string, { label: string; icon: string }> = {
     read_reference_markdown: { label: "Reading reference", icon: "📎" },
 };
 
-const DEBUG_PREFIX = "[MCR Review]";
+const DEBUG_PREFIX = "[Accounting Intake]";
 const LOCAL_AGENT_ENDPOINT =
     import.meta.env.VITE_AGENTCORE_LOCAL_ENDPOINT || "http://localhost:8000";
 
@@ -113,11 +129,12 @@ function extractDetailFromInput(
             [
                 "process_pdf",
                 "batch_content",
-                "run_generic_review",
-                "run_external_review",
-                "run_internal_review",
+                "create_transactions",
+                "create_journal_entries",
+                "generate_trial_balance",
+                "generate_financial_statements",
                 "read_reference_markdown",
-                "publish_review_results",
+                "publish_accounting_results",
             ].includes(core)
         ) {
             for (const key of pathKeys) {
@@ -159,7 +176,7 @@ function truncate(s: string, n: number): string {
     return s.length > n ? s.slice(0, n - 1) + "…" : s;
 }
 
-// Extract review results URL from tool result
+// Extract final results URL from tool result
 function extractReviewUrl(result: string): string | null {
     const match = result.match(/\[REVIEW_URL:(https?:\/\/[^\]]+)\]/);
     return match ? match[1] : null;
@@ -184,36 +201,11 @@ async function fetchUrl(url: string): Promise<string | null> {
     }
 }
 
-// Try to parse review issues from publish_review_results tool input JSON
-function tryParseIssuesFromInput(input: string): ReviewIssue[] | null {
+// Try to parse accounting results from publish tool input JSON
+function tryParseIssuesFromInput(input: string): AccountingReport | null {
     try {
         const parsed = JSON.parse(input);
-        const directFindings = parsed.findings;
-        if (
-            Array.isArray(directFindings) &&
-            directFindings.length > 0 &&
-            directFindings[0].page !== undefined
-        ) {
-            return directFindings;
-        }
-        // Backward-compatible fallback for older report-publish streams.
-        const content = parsed.content || parsed.data;
-        if (typeof content === "string") {
-            const issues = JSON.parse(content);
-            if (
-                Array.isArray(issues) &&
-                issues.length > 0 &&
-                issues[0].page !== undefined
-            ) {
-                return issues;
-            }
-        }
-        // Or the input itself might be the array
-        if (
-            Array.isArray(parsed) &&
-            parsed.length > 0 &&
-            parsed[0].page !== undefined
-        ) {
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
             return parsed;
         }
     } catch {
@@ -234,6 +226,9 @@ const FALLBACK_TOOLS: Record<string, ToolConfig> = {
     openfda: { enabled: true, default_on: true },
     clinicaltrials: { enabled: true, default_on: true },
     nova: { enabled: true, default_on: true },
+    coa: { enabled: true, default_on: true },
+    tax: { enabled: true, default_on: true },
+    period: { enabled: true, default_on: true },
 };
 
 // Produce a human-sortable session id, e.g.
@@ -277,7 +272,7 @@ export default function ChatInterface() {
     const [landingPreviewIdx, setLandingPreviewIdx] = useState<number>(0);
 
     // Review results state
-    const [reviewIssues, setReviewIssues] = useState<ReviewIssue[]>([]);
+    const [reviewIssues, setReviewIssues] = useState<AccountingReport | null>(null);
     const [showReviewPanel, setShowReviewPanel] = useState<boolean>(false);
     const [activityLog, setActivityLog] = useState<ActivityEntry[]>([]);
     // Per-phase counters: how many tool runs have started vs. completed for each of the 5 phases
@@ -442,7 +437,7 @@ export default function ChatInterface() {
                     ? overrideReferenceUris
                     : undefined;
 
-            console.info(`${DEBUG_PREFIX} Starting AgentCore review stream`, {
+            console.info(`${DEBUG_PREFIX} Starting AgentCore intake stream`, {
                 sessionId: overrideSessionId ?? sessionId,
                 enabledSources: enabledSourceIds,
                 contentPdfUri:
@@ -516,7 +511,10 @@ export default function ChatInterface() {
                                 });
                                 return [...prev, next];
                             });
-                            if (event.name === "publish_review_results") {
+                            if (
+                                event.name === "publish_review_results" ||
+                                event.name === "publish_accounting_results"
+                            ) {
                                 setShowReviewPanel(true);
                             }
                             updateMessage();
@@ -587,10 +585,13 @@ export default function ChatInterface() {
                                     });
                                 }
 
-                                if (tc.name === "publish_review_results") {
+                                if (
+                                    tc.name === "publish_review_results" ||
+                                    tc.name === "publish_accounting_results"
+                                ) {
                                     const reviewUrl = extractReviewUrl(tc.result || "");
                                     if (reviewUrl) {
-                                        console.info(`${DEBUG_PREFIX} Review result URL detected`, {
+                                        console.info(`${DEBUG_PREFIX} Accounting result URL detected`, {
                                             reviewUrl,
                                         });
                                         lastReviewUrlRef.current = reviewUrl;
@@ -600,21 +601,18 @@ export default function ChatInterface() {
                                                 try {
                                                     const parsed = JSON.parse(content);
                                                     console.info(
-                                                        `${DEBUG_PREFIX} Review result JSON fetched`,
+                                                        `${DEBUG_PREFIX} Accounting result JSON fetched`,
                                                         {
                                                             reviewUrl,
-                                                            issueCount: Array.isArray(parsed)
-                                                                ? parsed.length
-                                                                : null,
-                                                            parsedType: Array.isArray(parsed)
-                                                                ? "array"
-                                                                : typeof parsed,
+                                                            transactionCount:
+                                                                parsed?.transactions?.length ?? null,
+                                                            parsedType: typeof parsed,
                                                         },
                                                     );
-                                                    setReviewIssues(Array.isArray(parsed) ? parsed : []);
+                                                    setReviewIssues(parsed);
                                                 } catch {
                                                     console.warn(
-                                                        `${DEBUG_PREFIX} Review result JSON parse failed`,
+                                                        `${DEBUG_PREFIX} Accounting result JSON parse failed`,
                                                         {
                                                             reviewUrl,
                                                             contentPreview: truncate(content, 500),
@@ -689,18 +687,16 @@ export default function ChatInterface() {
         }
 
         if (!documentFile) {
-            setError(
-                "Please attach a medical content PDF before starting the review.",
-            );
+            setError("Please attach a receipt, invoice, or statement before starting intake.");
             return;
         }
 
-        // Stamp the session id with the moment the review actually starts, so the
+        // Stamp the session id with the moment the intake actually starts, so the
         // S3 folder name reflects "now" rather than page-load time.
         const freshSessionId = newSessionId();
         setSessionId(freshSessionId);
 
-        console.info(`${DEBUG_PREFIX} Review button clicked`, {
+        console.info(`${DEBUG_PREFIX} Intake button clicked`, {
             sessionId: freshSessionId,
             document: documentFile
                 ? {
@@ -744,7 +740,7 @@ export default function ChatInterface() {
         setIsUploading(false);
 
         const prompt =
-            "Please review the attached medical content document for adherence issues. Analyze all pages, cross-check claims against references, and produce a detailed review report.";
+            "Please run accrual-basis accounting intake for the attached financial document. Extract transactions, create journal entries using the chart of accounts, generate a trial balance, and produce financial statements.";
         const contentName = documentFile.name;
         const refNames = referenceFiles.map((f) => f.name);
         setShowReviewPanel(true);
@@ -764,7 +760,7 @@ export default function ChatInterface() {
         setMessages([]);
         setError(null);
         setIsLoading(false);
-        setReviewIssues([]);
+        setReviewIssues(null);
         setShowReviewPanel(false);
         setActivityLog([]);
         setPhaseStarted([0, 0, 0, 0, 0]);
@@ -893,7 +889,7 @@ export default function ChatInterface() {
                             }
                         />
 
-                        {/* Start AI Review Button */}
+                        {/* Start Intake Button */}
                         <div className="text-center py-4">
                             <button
                                 onClick={startReview}
@@ -919,7 +915,7 @@ export default function ChatInterface() {
                                         d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
                                     />
                                 </svg>
-                                {isUploading ? "Uploading files..." : "Start AI Review"}
+                                {isUploading ? "Uploading files..." : "Start Intake"}
                                 <svg
                                     className="w-5 h-5 transform group-hover:translate-x-1 transition-transform"
                                     fill="none"
@@ -936,7 +932,7 @@ export default function ChatInterface() {
                             </button>
                             {!documentFile && (
                                 <p className="text-sm text-gray-400 mt-3">
-                                    Please upload a document to begin
+                                    Please upload a financial document to begin
                                 </p>
                             )}
                         </div>

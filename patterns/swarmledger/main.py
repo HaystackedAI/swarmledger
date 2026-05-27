@@ -21,14 +21,14 @@ app = create_app()
 @app.entrypoint
 async def agent_stream(payload, context: RequestContext):
     """
-    Main entrypoint for the swarm ledger orchestrator.
+    Main entrypoint for the accounting intake orchestrator.
 
     Payload fields:
-    - prompt: User's review request (required)
+    - prompt: User's intake request (required)
     - runtimeSessionId: Session ID (required)
-    - enabledSources: Subset of {pubmed, openfda, clinicaltrials, nova} (optional)
-    - contentPdfUri: S3 URI of the swarm ledgerPDF to review
-    - referenceUris: List of S3 URIs for reference materials (optional)
+    - enabledSources: Frontend display toggles (optional; backend ignores them)
+    - contentPdfUri: S3 URI of the receipt, invoice, or statement to process
+    - referenceUris: List of S3 URIs for supporting materials (optional)
     """
     user_query = payload.get("prompt")
     session_id = payload.get("runtimeSessionId")
@@ -46,7 +46,7 @@ async def agent_stream(payload, context: RequestContext):
         return
 
     print(
-        "[SL Review] AgentCore request received "
+        "[Accounting Intake] AgentCore request received "
         + json.dumps(
             {
                 "session_id": session_id,
@@ -78,7 +78,7 @@ async def agent_stream(payload, context: RequestContext):
         agent = create_sl_agent(
             user_id,
             session_id,
-            external_sources_enabled=bool(enabled_sources),
+            external_sources_enabled=False,
         )
 
         stream = agent.stream_async(full_prompt, session_id=session_id)
@@ -89,7 +89,7 @@ async def agent_stream(payload, context: RequestContext):
             if "current_tool_use" in d:
                 ctu = d["current_tool_use"]
                 print(
-                    "[SL Review] Tool event "
+                    "[Accounting Intake] Tool event "
                     + json.dumps(
                         {
                             "session_id": session_id,

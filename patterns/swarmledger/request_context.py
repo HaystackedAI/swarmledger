@@ -12,7 +12,7 @@ def build_context_block(
 ) -> str:
     """Build the per-request input block that gets appended to the user prompt."""
     lines = [
-        "## Review inputs",
+        "## Accounting intake inputs",
         f"- session_id: `{session_id}`",
         "- content_pdf:",
         f"  - s3_uri: `{content_pdf_uri or '(missing)'}`",

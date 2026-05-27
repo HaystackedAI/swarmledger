@@ -7,7 +7,7 @@ interface UploadResponse {
     key: string;
 }
 
-const DEBUG_PREFIX = "[MCR Review]";
+const DEBUG_PREFIX = "[Accounting Intake]";
 
 function logReviewStep(message: string, details?: Record<string, unknown>): void {
     if (details) {

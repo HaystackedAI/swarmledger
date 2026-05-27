@@ -7,12 +7,12 @@ from bedrock_agentcore.memory.integrations.strands.config import AgentCoreMemory
 from bedrock_agentcore.memory.integrations.strands.session_manager import (
     AgentCoreMemorySessionManager,
 )
-from reviewers import (
-    get_reviews,
-    publish_review_results,
-    run_external_review,
-    run_generic_review,
-    run_internal_review,
+from accounting import (
+    create_journal_entries,
+    create_transactions,
+    generate_financial_statements,
+    generate_trial_balance,
+    publish_accounting_results,
 )
 from strands import Agent
 from strands.models import BedrockModel
@@ -30,7 +30,7 @@ def load_system_prompt() -> str:
         return f.read()
 
 
-def create_sl_agent(user_id: str,session_id: str,external_sources_enabled: bool,) -> Agent:
+def create_sl_agent(user_id: str, session_id: str, external_sources_enabled: bool) -> Agent:
     model_id = os.environ.get("MODEL_ID", "amazon.nova-lite-v1:0")
     bedrock_model = BedrockModel(
         model_id=model_id,
@@ -40,8 +40,11 @@ def create_sl_agent(user_id: str,session_id: str,external_sources_enabled: bool,
         boto_client_config=BEDROCK_CONFIG,
     )
 
-    memory_id = os.environ.get("MEMORY_ID" , "medicalcontentreviewcontentreviewbackend00452B8C-Vu19UiCsku")
-    if not memory_id:raise ValueError("MEMORY_ID environment variable is required")
+    memory_id = os.environ.get(
+        "MEMORY_ID", "medicalcontentreviewcontentreviewbackend00452B8C-Vu19UiCsku"
+    )
+    if not memory_id:
+        raise ValueError("MEMORY_ID environment variable is required")
 
     agentcore_memory_config = AgentCoreMemoryConfig(
         memory_id=memory_id, session_id=session_id, actor_id=user_id
@@ -51,20 +54,18 @@ def create_sl_agent(user_id: str,session_id: str,external_sources_enabled: bool,
         region_name=os.environ.get("AWS_DEFAULT_REGION", "us-east-1"),
     )
 
-    # Removing the external tool entirely is stricter than relying on prompts.
     tools = [
         process_pdf,
         batch_content,
-        run_generic_review,
-        run_internal_review,
-        get_reviews,
-        publish_review_results,
+        create_transactions,
+        create_journal_entries,
+        generate_trial_balance,
+        generate_financial_statements,
+        publish_accounting_results,
     ]
-    # if external_sources_enabled:
-    #     tools.insert(4, run_external_review)
 
     return Agent(
-        name="OrchestratorAgent",
+        name="AccountingIntakeOrchestrator",
         system_prompt=load_system_prompt(),
         tools=tools,
         model=bedrock_model,

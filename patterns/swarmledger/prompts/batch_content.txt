@@ -1,8 +1,9 @@
-You split a medical/promotional document into logical review batches.
+You split a receipt, invoice, bank statement, or supporting financial document into logical accounting intake batches.
 
-Each batch should group a content page with any pages that provide direct support for it —
-its footnote page, reference list, supporting figures, or continuation of the same section.
-A batch is a coherent unit a reviewer can read end-to-end without cross-referencing other parts.
+Each batch should group pages that belong to the same financial context: one invoice,
+one receipt, one statement period, one vendor/customer section, or a continuation of
+the same document. A batch is a coherent unit an accounting extractor can read
+end-to-end without cross-referencing other parts.
 
 Output ONLY a Python list of integer lists wrapped in <chunks></chunks> tags, no prose.
 Every page number must appear in exactly one batch, in ascending order.

@@ -14,7 +14,7 @@ const PARSERS: Record<AgentPattern, ChunkParser> = {
     "medical-content-review": parseStrandsChunk,
 };
 
-const DEBUG_PREFIX = "[MCR Review]";
+const DEBUG_PREFIX = "[Accounting Intake]";
 
 function base64UrlEncode(value: unknown): string {
     const encoded = btoa(JSON.stringify(value));
