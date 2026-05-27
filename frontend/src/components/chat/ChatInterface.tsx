@@ -36,7 +36,7 @@ function toolToPhaseIdx(name: string): number {
     )
         return 2;
     if (core === "get_reviews") return 3;
-    if (core === "file_write") return 4;
+    if (core === "publish_review_results") return 4;
     // Gateway searches inside reviewer sub-agents still live in phase 2
     if (
         core === "pubmed_search" ||
@@ -57,8 +57,7 @@ const TOOL_META: Record<string, { label: string; icon: string }> = {
     run_external_review: { label: "External Evidence", icon: "🔬" },
     run_internal_review: { label: "Internal References", icon: "📚" },
     get_reviews: { label: "Merging reviews", icon: "🧩" },
-    file_read: { label: "Reading file", icon: "📂" },
-    file_write: { label: "Writing a review report", icon: "✅" },
+    publish_review_results: { label: "Publishing review report", icon: "✅" },
     pubmed_search: { label: "Searching PubMed", icon: "🔬" },
     openfda_drug_search: { label: "Searching OpenFDA", icon: "💊" },
     clinicaltrials_search: { label: "Searching ClinicalTrials.gov", icon: "🏥" },
@@ -118,8 +117,7 @@ function extractDetailFromInput(
                 "run_external_review",
                 "run_internal_review",
                 "read_reference_markdown",
-                "file_read",
-                "file_write",
+                "publish_review_results",
             ].includes(core)
         ) {
             for (const key of pathKeys) {
@@ -186,11 +184,19 @@ async function fetchUrl(url: string): Promise<string | null> {
     }
 }
 
-// Try to parse review issues from file_write tool input JSON
+// Try to parse review issues from publish_review_results tool input JSON
 function tryParseIssuesFromInput(input: string): ReviewIssue[] | null {
     try {
         const parsed = JSON.parse(input);
-        // The input might be { path: "...", content: "..." } or { file_path: "...", data: "..." }
+        const directFindings = parsed.findings;
+        if (
+            Array.isArray(directFindings) &&
+            directFindings.length > 0 &&
+            directFindings[0].page !== undefined
+        ) {
+            return directFindings;
+        }
+        // Backward-compatible fallback for older report-publish streams.
         const content = parsed.content || parsed.data;
         if (typeof content === "string") {
             const issues = JSON.parse(content);
@@ -510,7 +516,7 @@ export default function ChatInterface() {
                                 });
                                 return [...prev, next];
                             });
-                            if (event.name === "file_write") {
+                            if (event.name === "publish_review_results") {
                                 setShowReviewPanel(true);
                             }
                             updateMessage();
@@ -581,7 +587,7 @@ export default function ChatInterface() {
                                     });
                                 }
 
-                                if (tc.name === "file_write") {
+                                if (tc.name === "publish_review_results") {
                                     const reviewUrl = extractReviewUrl(tc.result || "");
                                     if (reviewUrl) {
                                         console.info(`${DEBUG_PREFIX} Review result URL detected`, {

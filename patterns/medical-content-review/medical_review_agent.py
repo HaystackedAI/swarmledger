@@ -41,16 +41,15 @@ from bedrock_agentcore.memory.integrations.strands.session_manager import (
     AgentCoreMemorySessionManager,
 )
 from bedrock_agentcore.runtime import BedrockAgentCoreApp, RequestContext
-from review_upload_hook import ReviewS3UploadHook
 from reviewers import (
     get_reviews,
+    publish_review_results,
     run_external_review,
     run_generic_review,
     run_internal_review,
 )
 from strands import Agent
 from strands.models import BedrockModel
-from strands_tools import file_read, file_write
 from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
 from utils.auth import extract_user_id_from_context
@@ -147,7 +146,7 @@ def create_medical_review_agent(
     user_id: str,
     session_id: str,
     external_sources_enabled: bool,
-) -> tuple:
+) -> Agent:
     system_prompt = load_system_prompt()
 
     model_id = os.environ.get("MODEL_ID", "amazon.nova-micro-v1:0")
@@ -175,18 +174,15 @@ def create_medical_review_agent(
     # enabled. Removing it from the tool list entirely means the model cannot
     # call it even if it tries — a stricter guard than a prompt instruction.
     tools = [
-        file_read,
-        file_write,
         process_pdf,
         batch_content,
         run_generic_review,
         run_internal_review,
         get_reviews,
+        publish_review_results,
     ]
     if external_sources_enabled:
-        tools.insert(5, run_external_review)
-
-    review_upload_hook = ReviewS3UploadHook()
+        tools.insert(4, run_external_review)
 
     agent = Agent(
         name="MedicalContentReviewOrchestrator",
@@ -194,10 +190,9 @@ def create_medical_review_agent(
         tools=tools,
         model=bedrock_model,
         session_manager=session_manager,
-        hooks=[review_upload_hook],
         trace_attributes={"user.id": user_id, "session.id": session_id},
     )
-    return agent, review_upload_hook
+    return agent
 
 
 def _truncate_text(text: str, max_len: int) -> str:
@@ -217,24 +212,6 @@ def _truncate_large_fields(d: dict, max_len: int = 3000) -> None:
                 for item in tr["content"]:
                     if isinstance(item, dict) and isinstance(item.get("text"), str):
                         item["text"] = _truncate_text(item["text"], max_len)
-
-
-def _inject_review_urls(d: dict, urls: dict[str, str]) -> None:
-    msg = d.get("message")
-    if not isinstance(msg, dict) or not isinstance(msg.get("content"), list):
-        return
-    for block in msg["content"]:
-        if not isinstance(block, dict):
-            continue
-        tr = block.get("toolResult")
-        if isinstance(tr, dict) and isinstance(tr.get("content"), list):
-            for item in tr["content"]:
-                if isinstance(item, dict) and isinstance(item.get("text"), str):
-                    tags = ""
-                    if "review" in urls:
-                        tags += f"\n\n[REVIEW_URL:{urls['review']}]"
-                    item["text"] += tags
-                    return
 
 
 @app.entrypoint
@@ -295,7 +272,7 @@ async def agent_stream(payload, context: RequestContext):
 
     try:
         user_id = extract_user_id_from_context(context)
-        agent, review_hook = create_medical_review_agent(
+        agent = create_medical_review_agent(
             user_id,
             session_id,
             external_sources_enabled=bool(enabled_sources),
@@ -339,10 +316,6 @@ async def agent_stream(payload, context: RequestContext):
                     "name": ctu.get("name"),
                 }
             _truncate_large_fields(d, max_len=3000)
-
-            pending = review_hook.take_pending_urls()
-            if pending:
-                _inject_review_urls(d, pending)
 
             yield json.loads(json.dumps(d, default=str))
 

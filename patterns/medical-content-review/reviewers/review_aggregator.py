@@ -1,38 +1,37 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
-"""Aggregates per-batch reviewer JSONs, persists them, and returns a pointer."""
+"""Aggregates per-batch reviewer JSONs and publishes final review results."""
 
 import json
+import os
 import re
 
 import boto3
+from botocore.config import Config
 from strands import tool
 
 from reviewers._common import REVIEWS_PREFIX, STAGING_BUCKET
 
 s3_client = boto3.client("s3")
+presign_s3_client = boto3.client(
+    "s3",
+    region_name=os.environ.get(
+        "AWS_REGION", os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
+    ),
+    config=Config(s3={"addressing_style": "virtual"}),
+)
 
 REVIEWER_KIND_RE = re.compile(r"/(?P<kind>generic|external|internal)_[^/]+\.json$")
-LOCAL_AGGREGATE_PATH = "/tmp/all_findings.json"  # noqa: S108  # nosec B108
+URL_EXPIRATION = 3600
 
 
 @tool
 def get_reviews(session_id: str) -> str:
-    """Aggregate all per-batch reviewer JSONs, save them, and return a pointer.
+    """Aggregate all per-batch reviewer JSONs and return the findings directly.
 
     Reads every file under `s3://{STAGING_BUCKET}/reviews/{session_id}/`, tags each
     finding with the reviewer that produced it (`"generic" | "external" | "internal"`),
-    sorts findings by page number, then persists the result in TWO places:
-
-    1. `s3://{STAGING_BUCKET}/reviews/{session_id}/all_findings.json` — the durable
-       record, used for auditing the editor's dedupe decisions after the fact.
-    2. `/tmp/all_findings.json` — local to the AgentCore Runtime container, so the
-       orchestrator can load the full aggregate with `file_read` instead of having
-       the whole payload flow through its context window (where the model may
-       implicitly summarise or drop items).
-
-    Returns a short JSON pointer — the editor is expected to call
-    `file_read("/tmp/all_findings.json")` next to see every finding verbatim.
+    sorts findings by page number, and returns the full aggregate JSON in memory.
 
     Parameters
     ----------
@@ -42,13 +41,10 @@ def get_reviews(session_id: str) -> str:
     Returns
     -------
     str
-        A JSON pointer of shape:
-        `{"local_path": "/tmp/all_findings.json",
-          "aggregate_s3_uri": "s3://...",
+        JSON string of shape:
+        `{"findings": [...],
           "counts": {"generic": N, "external": N, "internal": N},
-          "total": N,
-          "instruction": "Call file_read('/tmp/all_findings.json') to load every
-                          finding verbatim before editing."}`
+          "total": N}`
     """
     if not STAGING_BUCKET:
         raise RuntimeError("STAGING_BUCKET_NAME environment variable is not set")
@@ -87,27 +83,55 @@ def get_reviews(session_id: str) -> str:
 
     findings.sort(key=_sort_key)
 
-    aggregate_key = f"{prefix}all_findings.json"
-    body = json.dumps({"findings": findings, "counts": counts}, indent=2).encode(
-        "utf-8"
-    )
+    aggregate = {
+        "findings": findings,
+        "counts": counts,
+        "total": len(findings),
+    }
+    return json.dumps(aggregate)
+
+
+@tool
+def publish_review_results(session_id: str, findings: list[dict]) -> str:
+    """Publish the final edited findings JSON to S3 and return a presigned URL.
+
+    Parameters
+    ----------
+    session_id : str
+        The orchestrator session id, used to namespace final review output.
+    findings : list[dict]
+        Final edited review findings. Each item should contain: page, quote, issue,
+        fix, reference, source, type, and score.
+
+    Returns
+    -------
+    str
+        JSON with the S3 URI, issue count, and a `[REVIEW_URL:...]` marker consumed
+        by the frontend.
+    """
+    if not STAGING_BUCKET:
+        raise RuntimeError("STAGING_BUCKET_NAME environment variable is not set")
+
+    if not isinstance(findings, list):
+        raise ValueError("findings must be a JSON array of review issue objects")
+
+    safe_session = re.sub(r"[^a-zA-Z0-9_-]", "_", session_id)
+    key = f"{REVIEWS_PREFIX}/{safe_session}/review_results.json"
+    body = json.dumps(findings, indent=2).encode("utf-8")
     s3_client.put_object(
         Bucket=STAGING_BUCKET,
-        Key=aggregate_key,
+        Key=key,
         Body=body,
         ContentType="application/json",
     )
-    with open(LOCAL_AGGREGATE_PATH, "wb") as f:
-        f.write(body)
-
-    pointer = {
-        "local_path": LOCAL_AGGREGATE_PATH,
-        "aggregate_s3_uri": f"s3://{STAGING_BUCKET}/{aggregate_key}",
-        "counts": counts,
-        "total": len(findings),
-        "instruction": (
-            f"Call file_read('{LOCAL_AGGREGATE_PATH}') next to load every finding"
-            " verbatim before you start editing the final report."
-        ),
+    url = presign_s3_client.generate_presigned_url(
+        "get_object",
+        Params={"Bucket": STAGING_BUCKET, "Key": key},
+        ExpiresIn=URL_EXPIRATION,
+    )
+    result = {
+        "s3_uri": f"s3://{STAGING_BUCKET}/{key}",
+        "count": len(findings),
+        "review_url": url,
     }
-    return json.dumps(pointer)
+    return json.dumps(result) + f"\n\n[REVIEW_URL:{url}]"
