@@ -2,9 +2,11 @@
 # SPDX-License-Identifier: MIT-0
 """PDF processor: converts PDF pages to markdown via multimodal OCR and stores on S3."""
 
+import json
 import os
 import re
 import tempfile
+import time
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 from pathlib import Path, PurePosixPath
@@ -30,6 +32,13 @@ OCR_MAX_TOKENS = get_env_int("OCR_MAX_TOKENS", get_step_max_tokens(default=4096)
 OCR_SYSTEM = (Path(__file__).parent.parent / "prompts" / "pdf_ocr.txt").read_text(
     encoding="utf-8"
 )
+
+
+def _log_ocr_event(event: str, **fields) -> None:
+    print(
+        "[Accounting Intake] "
+        + json.dumps({"event": event, **fields}, default=str)
+    )
 
 
 def _parse_s3_uri(s3_uri: str) -> tuple[str, str]:
@@ -62,26 +71,65 @@ def _ocr_single_page(pdf_path: str, page_idx: int, dpi: int) -> tuple[int, str]:
     buf = BytesIO()
     images[0].save(buf, format="JPEG")
 
-    response = bedrock_client.converse(
-        modelId=OCR_MODEL_ID,
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {"text": f"Extract all content from page {page_idx} as markdown."},
-                    {
-                        "image": {
-                            "format": "jpeg",
-                            "source": {"bytes": buf.getvalue()},
-                        }
-                    },
-                ],
-            }
-        ],
-        system=[{"text": OCR_SYSTEM}],
-        inferenceConfig={"maxTokens": OCR_MAX_TOKENS, "temperature": 0},
+    prompt = f"Extract all content from page {page_idx} as markdown."
+    image_bytes = buf.getvalue()
+    start = time.time()
+    _log_ocr_event(
+        "llm_start",
+        step="process_pdf_ocr_page",
+        model_id=OCR_MODEL_ID,
+        max_tokens=OCR_MAX_TOKENS,
+        page=page_idx,
+        dpi=dpi,
+        system_chars=len(OCR_SYSTEM),
+        user_chars=len(prompt),
+        image_bytes=len(image_bytes),
     )
+    try:
+        response = bedrock_client.converse(
+            modelId=OCR_MODEL_ID,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"text": prompt},
+                        {
+                            "image": {
+                                "format": "jpeg",
+                                "source": {"bytes": image_bytes},
+                            }
+                        },
+                    ],
+                }
+            ],
+            system=[{"text": OCR_SYSTEM}],
+            inferenceConfig={"maxTokens": OCR_MAX_TOKENS, "temperature": 0},
+        )
+    except Exception as exc:
+        _log_ocr_event(
+            "llm_error",
+            step="process_pdf_ocr_page",
+            model_id=OCR_MODEL_ID,
+            max_tokens=OCR_MAX_TOKENS,
+            page=page_idx,
+            dpi=dpi,
+            elapsed_seconds=round(time.time() - start, 3),
+            error_type=type(exc).__name__,
+            error=str(exc),
+        )
+        raise
     page_text = response["output"]["message"]["content"][0]["text"].strip()
+    _log_ocr_event(
+        "llm_end",
+        step="process_pdf_ocr_page",
+        model_id=OCR_MODEL_ID,
+        page=page_idx,
+        stop_reason=response.get("stopReason"),
+        usage=response.get("usage", {}),
+        metrics=response.get("metrics", {}),
+        output_chars=len(page_text),
+        elapsed_seconds=round(time.time() - start, 3),
+    )
     return page_idx, page_text
 
 
@@ -120,6 +168,15 @@ def process_pdf(s3_uri: str, original_filename: str = "", dpi: int = 200) -> str
         if original_filename
         else _stem_from_s3_key(key)
     )
+    _log_ocr_event(
+        "step",
+        step="process_pdf",
+        model_id=OCR_MODEL_ID,
+        max_tokens=OCR_MAX_TOKENS,
+        s3_uri=s3_uri,
+        original_filename=original_filename,
+        dpi=dpi,
+    )
 
     with tempfile.NamedTemporaryFile(suffix=".pdf", delete=True) as tmp:
         s3_client.download_file(bucket, key, tmp.name)
@@ -145,5 +202,14 @@ def process_pdf(s3_uri: str, original_filename: str = "", dpi: int = 200) -> str
         Key=out_key,
         Body=document_markdown.encode("utf-8"),
         ContentType="text/markdown",
+    )
+    _log_ocr_event(
+        "step",
+        step="process_pdf_complete",
+        model_id=OCR_MODEL_ID,
+        s3_uri=s3_uri,
+        total_pages=total_pages,
+        markdown_chars=len(document_markdown),
+        output_s3_uri=f"s3://{STAGING_BUCKET}/{out_key}",
     )
     return f"s3://{STAGING_BUCKET}/{out_key}"

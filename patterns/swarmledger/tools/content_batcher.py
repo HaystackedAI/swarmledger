@@ -6,6 +6,7 @@ import ast
 import json
 import os
 import re
+import time
 from pathlib import Path, PurePosixPath
 
 import boto3
@@ -37,6 +38,13 @@ PROMPT_TEMPLATE = (
 )
 
 PAGE_PATTERN = re.compile(r"\[page (\d+)\]\n(.*?)\n\[/page \1\]", re.DOTALL)
+
+
+def _log_batcher_event(event: str, **fields) -> None:
+    print(
+        "[Accounting Intake] "
+        + json.dumps({"event": event, **fields}, default=str)
+    )
 
 
 def _parse_s3_uri(s3_uri: str) -> tuple[str, str]:
@@ -88,18 +96,54 @@ def batch_content(markdown_s3_uri: str) -> str:
         raise ValueError(f"No [page N] sections found in {markdown_s3_uri}")
     total_pages = max(pages)
 
-    response = bedrock_client.converse(
-        modelId=MODEL_ID,
-        messages=[
-            {
-                "role": "user",
-                "content": [{"text": PROMPT_TEMPLATE.format(markdown=body)}],
-            }
-        ],
-        system=[{"text": SYSTEM}],
-        inferenceConfig={"maxTokens": BATCHER_MAX_TOKENS, "temperature": 0},
+    prompt = PROMPT_TEMPLATE.format(markdown=body)
+    start = time.time()
+    _log_batcher_event(
+        "llm_start",
+        step="batch_content",
+        model_id=MODEL_ID,
+        max_tokens=BATCHER_MAX_TOKENS,
+        markdown_s3_uri=markdown_s3_uri,
+        total_pages=total_pages,
+        system_chars=len(SYSTEM),
+        user_chars=len(prompt),
     )
+    try:
+        response = bedrock_client.converse(
+            modelId=MODEL_ID,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [{"text": prompt}],
+                }
+            ],
+            system=[{"text": SYSTEM}],
+            inferenceConfig={"maxTokens": BATCHER_MAX_TOKENS, "temperature": 0},
+        )
+    except Exception as exc:
+        _log_batcher_event(
+            "llm_error",
+            step="batch_content",
+            model_id=MODEL_ID,
+            max_tokens=BATCHER_MAX_TOKENS,
+            markdown_s3_uri=markdown_s3_uri,
+            total_pages=total_pages,
+            elapsed_seconds=round(time.time() - start, 3),
+            error_type=type(exc).__name__,
+            error=str(exc),
+        )
+        raise
     raw = response["output"]["message"]["content"][0]["text"]
+    _log_batcher_event(
+        "llm_end",
+        step="batch_content",
+        model_id=MODEL_ID,
+        stop_reason=response.get("stopReason"),
+        usage=response.get("usage", {}),
+        metrics=response.get("metrics", {}),
+        output_chars=len(raw),
+        elapsed_seconds=round(time.time() - start, 3),
+    )
     batch_page_lists: list[list[int]] = ast.literal_eval(_parse_tagged(raw, "chunks"))
 
     stem = PurePosixPath(key).stem

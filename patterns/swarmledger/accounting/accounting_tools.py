@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 from decimal import Decimal
 from pathlib import Path, PurePosixPath
 
@@ -34,6 +35,13 @@ MODEL_ID = os.environ.get(
 STAGING_BUCKET = os.environ.get("STAGING_BUCKET_NAME")
 ACCOUNTING_PREFIX = "accounting"
 URL_EXPIRATION = 3600
+
+
+def _log_accounting_event(event: str, **fields) -> None:
+    print(
+        "[Accounting Intake] "
+        + json.dumps({"event": event, **fields}, default=str)
+    )
 
 
 def _default_coa_path() -> Path:
@@ -157,9 +165,72 @@ def _extract_json(text: str, tag: str):
             return [] if tag != "financial_statements" else {}
 
 
-def _run_json_agent(system_prompt: str, user_prompt: str, tag: str):
+def _run_json_agent(system_prompt: str, user_prompt: str, tag: str, step: str):
+    start = time.time()
     agent = Agent(model=_build_model(), system_prompt=system_prompt, tools=[])
-    return _extract_json(str(agent(user_prompt)), tag)
+    _log_accounting_event(
+        "llm_start",
+        step=step,
+        model_id=MODEL_ID,
+        max_tokens=INFERENCE_CONFIG["maxTokens"],
+        system_chars=len(system_prompt),
+        user_chars=len(user_prompt),
+    )
+    try:
+        result = agent(user_prompt)
+        text = str(result)
+        usage = getattr(result.metrics, "accumulated_usage", {}) if result.metrics else {}
+        metrics = (
+            getattr(result.metrics, "accumulated_metrics", {})
+            if result.metrics
+            else {}
+        )
+        _log_accounting_event(
+            "llm_end",
+            step=step,
+            model_id=MODEL_ID,
+            stop_reason=getattr(result, "stop_reason", None),
+            context_size=getattr(result, "context_size", None),
+            projected_context_size=getattr(result, "projected_context_size", None),
+            usage=usage,
+            metrics=metrics,
+            output_chars=len(text),
+            elapsed_seconds=round(time.time() - start, 3),
+        )
+        parsed = _extract_json(text, tag)
+        parsed_count = len(parsed) if isinstance(parsed, list) else None
+        _log_accounting_event(
+            "json_parse",
+            step=step,
+            model_id=MODEL_ID,
+            stop_reason=getattr(result, "stop_reason", None),
+            parsed_type=type(parsed).__name__,
+            parsed_count=parsed_count,
+        )
+        return parsed
+    except Exception as exc:
+        _log_accounting_event(
+            "llm_error",
+            step=step,
+            model_id=MODEL_ID,
+            max_tokens=INFERENCE_CONFIG["maxTokens"],
+            system_chars=len(system_prompt),
+            user_chars=len(user_prompt),
+            elapsed_seconds=round(time.time() - start, 3),
+            error_type=type(exc).__name__,
+            error=str(exc),
+        )
+        raise
+
+
+def _log_collection_step(step: str, **fields) -> None:
+    _log_accounting_event(
+        "step",
+        step=step,
+        model_id=MODEL_ID,
+        max_tokens=INFERENCE_CONFIG["maxTokens"],
+        **fields,
+    )
 
 
 def _amount(value) -> Decimal:
@@ -174,6 +245,12 @@ def create_transactions(batch_md_s3_uri: str, session_id: str) -> str:
     """Extract accrual-basis transactions from one OCR batch and save them to S3."""
     markdown = _read_s3_text(batch_md_s3_uri)
     stem = PurePosixPath(_parse_s3_uri(batch_md_s3_uri)[1]).stem
+    _log_collection_step(
+        "create_transactions",
+        session_id=session_id,
+        batch_md_s3_uri=batch_md_s3_uri,
+        markdown_chars=len(markdown),
+    )
     system_prompt = """
 You extract accounting transactions from receipts, invoices, and bank statements.
 Use accrual basis only. Create transactions for economic events supported by the
@@ -202,9 +279,16 @@ Return only JSON inside <transactions> tags. Schema:
         system_prompt=system_prompt,
         user_prompt=f"Extract transactions from this OCR batch:\n\n{markdown}",
         tag="transactions",
+        step="create_transactions",
     )
     if not isinstance(transactions, list):
         transactions = []
+    _log_collection_step(
+        "create_transactions_complete",
+        session_id=session_id,
+        batch_md_s3_uri=batch_md_s3_uri,
+        transaction_count=len(transactions),
+    )
     return _put_json(session_id, f"transactions_{stem}.json", transactions)
 
 
@@ -212,6 +296,11 @@ Return only JSON inside <transactions> tags. Schema:
 def create_journal_entries(session_id: str) -> str:
     """Create balanced accrual journal entries from extracted transactions."""
     transactions = _list_json(session_id, "transactions_")
+    _log_collection_step(
+        "create_journal_entries",
+        session_id=session_id,
+        transaction_count=len(transactions),
+    )
     system_prompt = f"""
 You are an accrual accounting engine. Convert extracted transactions into balanced
 journal entries using only posting accounts from this chart of accounts:
@@ -242,9 +331,15 @@ Schema:
         system_prompt=system_prompt,
         user_prompt=json.dumps(transactions, indent=2),
         tag="journal_entries",
+        step="create_journal_entries",
     )
     if not isinstance(entries, list):
         entries = []
+    _log_collection_step(
+        "create_journal_entries_complete",
+        session_id=session_id,
+        journal_entry_count=len(entries),
+    )
     return _put_json(session_id, "journal_entries.json", entries)
 
 
@@ -252,6 +347,11 @@ Schema:
 def generate_trial_balance(session_id: str) -> str:
     """Generate a trial balance from saved journal entries."""
     entries = _list_json(session_id, "journal_entries")
+    _log_collection_step(
+        "generate_trial_balance",
+        session_id=session_id,
+        journal_entry_count=len(entries),
+    )
     accounts = {a["code"]: a for a in _load_coa_accounts()}
     totals: dict[str, dict] = {}
     for entry in entries:
@@ -288,6 +388,11 @@ def generate_trial_balance(session_id: str) -> str:
                 "net_credit": float(-net if net < 0 else Decimal("0")),
             }
         )
+    _log_collection_step(
+        "generate_trial_balance_complete",
+        session_id=session_id,
+        trial_balance_rows=len(trial_balance),
+    )
     return _put_json(session_id, "trial_balance.json", trial_balance)
 
 
@@ -295,6 +400,11 @@ def generate_trial_balance(session_id: str) -> str:
 def generate_financial_statements(session_id: str) -> str:
     """Generate basic financial statements from the trial balance."""
     trial_balance = _list_json(session_id, "trial_balance")
+    _log_collection_step(
+        "generate_financial_statements",
+        session_id=session_id,
+        trial_balance_rows=len(trial_balance),
+    )
     by_prefix = {"1": 0.0, "2": 0.0, "3": 0.0, "4": 0.0, "5": 0.0}
     for row in trial_balance:
         code = str(row.get("account_code", ""))
@@ -326,6 +436,11 @@ def generate_financial_statements(session_id: str) -> str:
         },
         "basis": "Accrual",
     }
+    _log_collection_step(
+        "generate_financial_statements_complete",
+        session_id=session_id,
+        balance_sheet_check=statements["balance_sheet"]["check"],
+    )
     return _put_json(session_id, "financial_statements.json", statements)
 
 
@@ -340,6 +455,13 @@ def publish_accounting_results(session_id: str) -> str:
             _list_json(session_id, "financial_statements") or [{}]
         )[0],
     }
+    _log_collection_step(
+        "publish_accounting_results",
+        session_id=session_id,
+        transaction_count=len(report["transactions"]),
+        journal_entry_count=len(report["journal_entries"]),
+        trial_balance_rows=len(report["trial_balance"]),
+    )
     bucket = _require_bucket()
     key = f"{ACCOUNTING_PREFIX}/{_safe_session(session_id)}/accounting_results.json"
     s3_client.put_object(
